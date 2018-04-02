@@ -1,0 +1,220 @@
+"""
+Stevens student repository by Sanjeev Rajasekaran
+03/24/2018
+"""
+
+import unittest
+from collections import defaultdict
+from prettytable import PrettyTable
+import os
+
+
+class Repo:
+    """
+    Class that contains data from students.txt
+    """
+
+    def __init__(self, dir_path):
+        self.dir_path = dir_path
+        try:
+            os.chdir(self.dir_path)
+        except FileNotFoundError:
+            raise FileNotFoundError("Directory not found")
+        self.student_data = dict()
+        self.instructor_data = dict()
+        self.student_grade_per_subject = defaultdict(lambda: defaultdict(str))
+        self.instructor_course_with_noofstudents = defaultdict(lambda: defaultdict(str))
+        self.student_dict = dict()
+
+    def process_student_data(self):
+
+        filename = "students.txt"
+        try:
+            fp = open(filename, 'r')
+        except FileNotFoundError:
+            return "File {} cannot be opened".format(filename)
+        with fp:
+
+            if os.stat(filename).st_size != 0:  # check if file is empty
+                lines = fp.readlines()
+                for line in lines:
+                    split_words = line.strip().split("\t")
+                    if len(split_words) != 3:
+                        raise IOError("Error, bad file")
+                    stu = Student(split_words[0], split_words[1], split_words[2], {})
+                    cwid, name, dept, course_grade = stu.single_student()
+                    self.student_data[cwid] = self.student_data.get(cwid, [name, dept, course_grade])
+                    if not self.student_data:
+                        raise IOError("Student not found")
+            else:
+                return "Empty file"
+
+    def process_instructor_data(self):
+
+        filename = "instructors.txt"
+        try:
+            fp = open(filename, 'r')
+        except FileNotFoundError:
+            return "File {} cannot be opened".format(filename)
+        with fp:
+
+            if os.stat(filename).st_size != 0:  # check if file is empty
+                lines = fp.readlines()
+                for line in lines:
+                    split_words = line.strip().split("\t")
+                    if len(split_words) != 3:
+                        raise IOError("Error, bad file")
+                    ins = Instructor(split_words[0], split_words[1], split_words[2], {})
+                    cwid, name, dept, course_student_count = ins.single_instructor()
+                    self.instructor_data[cwid] = self.instructor_data.get(cwid, [name, dept, course_student_count])
+            else:
+                raise IOError("Empty file")
+
+    def process_grades(self):
+
+        filename = "grades.txt"
+
+        try:
+            fp = open(filename, 'r')
+        except FileNotFoundError:
+            return "File {} cannot be opened".format(filename)
+        with fp:
+
+            if os.stat(filename).st_size != 0:  # check if file is empty
+                lines = fp.readlines()
+                for line in lines:
+                    self.student_grade_per_subject.clear()
+                    self.instructor_course_with_noofstudents.clear()
+                    split_words = line.strip().split("\t")
+                    if len(split_words) != 4:
+                        raise IOError("Error, bad file")
+
+                    for key, value in self.student_data.items():
+                        if key == split_words[0]:
+                            value[2][split_words[1]] = value[2].get(split_words[1], "") + split_words[2]
+                    for ikey, ivalue in self.instructor_data.items():
+                        if ikey == split_words[3].strip():
+                            ivalue[2][split_words[1]] = ivalue[2].get(split_words[1], 0) + 1
+            else:
+                raise IOError("Empty file")
+
+    def pretty_table(self):
+        """
+        print pretty table
+        """
+
+        pretty_student = PrettyTable(field_names=['CWID', 'Name', 'Completed Courses'])
+
+        for item in self.student_data:
+            course_per_student = []
+            name , major, dictt = self.student_data[item]
+            for key, value in dictt.items():
+                course_per_student.append(key)
+            pretty_student.add_row([item, name, course_per_student])
+        print(pretty_student)
+
+        pretty_instructor = PrettyTable(field_names=['CWID', 'Name', 'Dept', 'Course', 'Students'])
+
+        for item in self.instructor_data:
+            courses_teaching = []
+            students_enrolled = []
+            name, major, dictt = self.instructor_data[item]
+            for key, value in dictt.items():
+                courses_teaching.append(key)
+                students_enrolled.append(value)
+
+            if not courses_teaching:
+                continue
+            else:
+                if len(courses_teaching) > 1:
+                    for each_subject, student_for_each in zip(courses_teaching, students_enrolled):
+                        pretty_instructor.add_row([item, name, major, each_subject, student_for_each])
+                else:
+                    pretty_instructor.add_row([item, name, major, each_subject, students_enrolled])
+
+        print(pretty_instructor)
+
+
+class Student:
+    """
+    Class that contains data from grades.txt
+    """
+
+    def __init__(self, cwid, name, major, course_grade_dict):
+        self.cwid = cwid
+        self.name = name
+        self.major = major
+        self.course_grade_dict = course_grade_dict
+
+    def single_student(self):
+
+        return [self.cwid, self.name, self.major.strip(), self.course_grade_dict]
+
+
+class Instructor:
+    """
+    Class that contains data from instructors.txt
+    """
+
+    def __init__(self, cwid, name, major, course_student_container):
+        self.cwid = cwid
+        self.name = name
+        self.major = major
+        self.course_student_container = course_student_container
+
+    def single_instructor(self):
+
+        return [self.cwid, self.name, self.major, self.course_student_container]
+
+
+class TestCases(unittest.TestCase):
+    """
+    class with all test methods
+    """
+    def test_students(self):
+        """
+        Test student_data
+        """
+        s1 = Student("10103", "Baldwin, C", "SFEN", {})
+        self.assertEqual(s1.single_student(), ['10103', 'Baldwin, C', 'SFEN', {}])
+
+    def test_instructors(self):
+        """
+        Test instructor data
+        """
+        i1 = Instructor("98765", "Einstein, A", "SFEN", {})
+        i1.single_instructor()
+        self.assertEqual(i1.single_instructor(), ['98765', 'Einstein, A', 'SFEN', {}])
+
+    def test_repo(self):
+        """
+        Test repo data
+        """
+
+        r1 = Repo("d:/ms se/ssw-810")
+        r1.process_student_data()
+        r1.process_instructor_data()
+        r1.process_grades()
+        self.assertEqual(r1.student_data, {'10103': ['Baldwin, C', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A-', 'SSW 687': 'B', 'CS 501': 'B'}], '10115': ['Wyatt, X', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'B+', 'SSW 687': 'A', 'CS 545': 'A'}], '10172': ['Forbes, I', 'SFEN', {'SSW 555': 'A', 'SSW 567': 'A-'}], '10175': ['Erickson, D', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A', 'SSW 687': 'B-'}], '10183': ['Chapman, O', 'SFEN', {'SSW 689': 'A'}], '11399': ['Cordova, I', 'SYEN', {'SSW 540': 'B'}], '11461': ['Wright, U', 'SYEN', {'SYS 800': 'A', 'SYS 750': 'A-', 'SYS 611': 'A'}], '11658': ['Kelly, P', 'SYEN', {'SSW 540': 'F'}], '11714': ['Morton, A', 'SYEN', {'SYS 611': 'A', 'SYS 645': 'C'}], '11788': ['Fuller, E', 'SYEN', {'SSW 540': 'A'}]})
+        self.assertEqual(r1.instructor_data, {'98765': ['Einstein, A', 'SFEN', {'SSW 567': 4, 'SSW 540': 3}], '98764': ['Feynman, R', 'SFEN', {'SSW 564': 3, 'SSW 687': 3, 'CS 501': 1, 'CS 545': 1}], '98763': ['Newton, I', 'SFEN', {'SSW 555': 1, 'SSW 689': 1}], '98762': ['Hawking, S', 'SYEN', {}], '98761': ['Edison, A', 'SYEN', {}], '98760': ['Darwin, C', 'SYEN', {'SYS 800': 1, 'SYS 750': 1, 'SYS 611': 2, 'SYS 645': 1}]})
+        
+
+def main():
+
+    rep1 = Repo("d:/ms se/ssw-810")
+    stu_ans = rep1.process_student_data()
+    if stu_ans is not None:
+        print(stu_ans)
+    ins_ans = rep1.process_instructor_data()
+    if ins_ans is not None:
+        print(ins_ans)
+    grd_ans = rep1.process_grades()
+    if grd_ans is not None:
+        print(grd_ans)
+
+    rep1.pretty_table()
+
+
+if __name__ == '__main__':
+    main()
+    unittest.main(exit=False)
