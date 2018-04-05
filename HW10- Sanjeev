@@ -14,7 +14,7 @@ class Repo:
     Class that contains data from students.txt
     """
 
-    def __init__(self, dir_path):
+    def __init__(self, dir_path, printpretty = True):
         self.dir_path = dir_path
         try:
             os.chdir(self.dir_path)
@@ -25,6 +25,11 @@ class Repo:
         self.student_grade_per_subject = defaultdict(lambda: defaultdict(str))
         self.instructor_course_with_noofstudents = defaultdict(lambda: defaultdict(str))
         self.student_dict = dict()
+        self.major_dict = dict()
+        self.course_required = dict()
+        self.required_courses = defaultdict(list)
+        self.elective_courses = defaultdict(list)
+        self.printpretty = printpretty
 
     def process_student_data(self):
 
@@ -98,27 +103,107 @@ class Repo:
             else:
                 raise IOError("Empty file")
 
+    def process_majors(self):
+
+        filename = "majors.txt"
+        try:
+            fp = open(filename, 'r')
+        except FileNotFoundError:
+            return "File {} cannot be opened".format(filename)
+        with fp:
+
+            if os.stat(filename).st_size != 0:  # check if file is empty
+                lines = fp.readlines()
+                for line in lines:
+                    split_words = line.strip().split("\t")
+                    if len(split_words) != 3:
+                        raise IOError("Error, bad file")
+                    maj = Majors(split_words[0], split_words[1], split_words[2])
+                    dept, course_type, course_name = maj.single_major()
+                    self.major_dict[dept] = self.major_dict.get(dept, []) + [{course_type: course_name}]
+
+            else:
+                raise IOError("Empty file")
+
+    def calc_required_elective(self, dictt, major):
+        """Calculate required and elective courses"""
+
+        course_per_student = []
+        for key, value in dictt.items():
+            if value in ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C']:
+                course_per_student.append(key)
+        required_course = set()
+        for dept, courses in self.major_dict.items():
+            if dept == major:
+                for list_offset in courses:
+                    for course_type, course_name in list_offset.items():
+                        if course_type == 'R':
+                            required_course.add(course_name)
+        required_elective = set()
+        for dept, courses in self.major_dict.items():
+            if dept == major:
+                for list_offset in courses:
+                    for course_type, course_name in list_offset.items():
+                        if course_type == 'E':
+                            required_elective.add(course_name)
+        return course_per_student, required_course, required_elective
+
     def pretty_table(self):
         """
         print pretty table
         """
 
-        pretty_student = PrettyTable(field_names=['CWID', 'Name', 'Completed Courses'])
+        pretty_major = PrettyTable(field_names=['Dept', 'Required', 'Electives'])
 
-        for item in self.student_data:
-            course_per_student = []
-            name , major, dictt = self.student_data[item]
-            for key, value in dictt.items():
-                course_per_student.append(key)
-            pretty_student.add_row([item, name, course_per_student])
-        print(pretty_student)
+        for dept in self.major_dict:
+
+            required_courses = []
+            elective_courses = []
+
+            values = self.major_dict[dept]
+
+            for dept_list in values:
+
+                for key, value in dept_list.items():
+
+                    if key == 'R':
+                        required_courses.append(value)
+                        self.required_courses[dept].append(value)
+
+                    elif key == 'E':
+                        elective_courses.append(value)
+                        self.elective_courses[dept] = self.elective_courses.get(dept, "") + value
+                    else:
+                        raise IOError("Cant identify course type")
+
+            pretty_major.add_row([dept, required_courses, elective_courses])
+
+        if self.printpretty is True:
+            print(pretty_major)
+
+        pretty_student = PrettyTable(field_names=['CWID', 'Name', 'Major', 'Completed Courses', 'Remaining required', 'Remaining Electives'])
+
+        for cwid in self.student_data:
+            name, major, dictt = self.student_data[cwid]
+            course_per_student, required_course, required_elective = self.calc_required_elective(dictt, major)
+            course_list = set(course_per_student)
+            required_set = required_course.difference(course_list)
+            elective_set = required_elective.intersection(course_list)
+            if len(elective_set) >= 1:
+                elective_set = None
+            else:
+                elective_set = required_elective.difference(course_list)
+            pretty_student.add_row([cwid, name, major, course_per_student, required_set, elective_set])
+
+        if self.printpretty is True:
+            print(pretty_student)
 
         pretty_instructor = PrettyTable(field_names=['CWID', 'Name', 'Dept', 'Course', 'Students'])
 
-        for item in self.instructor_data:
+        for dept in self.instructor_data:
             courses_teaching = []
             students_enrolled = []
-            name, major, dictt = self.instructor_data[item]
+            name, major, dictt = self.instructor_data[dept]
             for key, value in dictt.items():
                 courses_teaching.append(key)
                 students_enrolled.append(value)
@@ -128,11 +213,11 @@ class Repo:
             else:
                 if len(courses_teaching) > 1:
                     for each_subject, student_for_each in zip(courses_teaching, students_enrolled):
-                        pretty_instructor.add_row([item, name, major, each_subject, student_for_each])
+                        pretty_instructor.add_row([dept, name, major, each_subject, student_for_each])
                 else:
-                    pretty_instructor.add_row([item, name, major, each_subject, students_enrolled])
-
-        print(pretty_instructor)
+                    pretty_instructor.add_row([dept, name, major, each_subject, students_enrolled])
+        if self.printpretty is True:
+            print(pretty_instructor)
 
 
 class Student:
@@ -147,7 +232,6 @@ class Student:
         self.course_grade_dict = course_grade_dict
 
     def single_student(self):
-
         return [self.cwid, self.name, self.major.strip(), self.course_grade_dict]
 
 
@@ -163,14 +247,28 @@ class Instructor:
         self.course_student_container = course_student_container
 
     def single_instructor(self):
-
         return [self.cwid, self.name, self.major, self.course_student_container]
+
+
+class Majors:
+    """
+    Class that contains required courses and elective data for majors
+    """
+
+    def __init__(self, major, course_type, course_name):
+        self.major = major
+        self.course_type = course_type
+        self.course_name = course_name
+
+    def single_major(self):
+        return [self.major, self.course_type, self.course_name]
 
 
 class TestCases(unittest.TestCase):
     """
     class with all test methods
     """
+
     def test_students(self):
         """
         Test student_data
@@ -195,12 +293,37 @@ class TestCases(unittest.TestCase):
         r1.process_student_data()
         r1.process_instructor_data()
         r1.process_grades()
-        self.assertEqual(r1.student_data, {'10103': ['Baldwin, C', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A-', 'SSW 687': 'B', 'CS 501': 'B'}], '10115': ['Wyatt, X', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'B+', 'SSW 687': 'A', 'CS 545': 'A'}], '10172': ['Forbes, I', 'SFEN', {'SSW 555': 'A', 'SSW 567': 'A-'}], '10175': ['Erickson, D', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A', 'SSW 687': 'B-'}], '10183': ['Chapman, O', 'SFEN', {'SSW 689': 'A'}], '11399': ['Cordova, I', 'SYEN', {'SSW 540': 'B'}], '11461': ['Wright, U', 'SYEN', {'SYS 800': 'A', 'SYS 750': 'A-', 'SYS 611': 'A'}], '11658': ['Kelly, P', 'SYEN', {'SSW 540': 'F'}], '11714': ['Morton, A', 'SYEN', {'SYS 611': 'A', 'SYS 645': 'C'}], '11788': ['Fuller, E', 'SYEN', {'SSW 540': 'A'}]})
-        self.assertEqual(r1.instructor_data, {'98765': ['Einstein, A', 'SFEN', {'SSW 567': 4, 'SSW 540': 3}], '98764': ['Feynman, R', 'SFEN', {'SSW 564': 3, 'SSW 687': 3, 'CS 501': 1, 'CS 545': 1}], '98763': ['Newton, I', 'SFEN', {'SSW 555': 1, 'SSW 689': 1}], '98762': ['Hawking, S', 'SYEN', {}], '98761': ['Edison, A', 'SYEN', {}], '98760': ['Darwin, C', 'SYEN', {'SYS 800': 1, 'SYS 750': 1, 'SYS 611': 2, 'SYS 645': 1}]})
-        
+        self.assertEqual(r1.student_data, {
+            '10103': ['Baldwin, C', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A-', 'SSW 687': 'B', 'CS 501': 'B'}],
+            '10115': ['Wyatt, X', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'B+', 'SSW 687': 'A', 'CS 545': 'A'}],
+            '10172': ['Forbes, I', 'SFEN', {'SSW 555': 'A', 'SSW 567': 'A-'}],
+            '10175': ['Erickson, D', 'SFEN', {'SSW 567': 'A', 'SSW 564': 'A', 'SSW 687': 'B-'}],
+            '10183': ['Chapman, O', 'SFEN', {'SSW 689': 'A'}], '11399': ['Cordova, I', 'SYEN', {'SSW 540': 'B'}],
+            '11461': ['Wright, U', 'SYEN', {'SYS 800': 'A', 'SYS 750': 'A-', 'SYS 611': 'A'}],
+            '11658': ['Kelly, P', 'SYEN', {'SSW 540': 'F'}],
+            '11714': ['Morton, A', 'SYEN', {'SYS 611': 'A', 'SYS 645': 'C'}],
+            '11788': ['Fuller, E', 'SYEN', {'SSW 540': 'A'}]})
+        self.assertEqual(r1.instructor_data, {'98765': ['Einstein, A', 'SFEN', {'SSW 567': 4, 'SSW 540': 3}],
+                                              '98764': ['Feynman, R', 'SFEN',
+                                                        {'SSW 564': 3, 'SSW 687': 3, 'CS 501': 1, 'CS 545': 1}],
+                                              '98763': ['Newton, I', 'SFEN', {'SSW 555': 1, 'SSW 689': 1}],
+                                              '98762': ['Hawking, S', 'SYEN', {}], '98761': ['Edison, A', 'SYEN', {}],
+                                              '98760': ['Darwin, C', 'SYEN',
+                                                        {'SYS 800': 1, 'SYS 750': 1, 'SYS 611': 2, 'SYS 645': 1}]})
+
+    def test_major(self):
+        r1 = Repo("d:/ms se/ssw-810")
+        r1.process_majors()
+        self.assertEqual(r1.major_dict, {'SFEN': [{'R': 'SSW 540'}, {'R': 'SSW 564'}, {'R': 'SSW 555'}, {'R': 'SSW 567'}, {'E': 'CS 501'}, {'E': 'CS 513'}, {'E': 'CS 545'}], 'SYEN': [{'R': 'SYS 671'}, {'R': 'SYS 612'}, {'R': 'SYS 800'}, {'E': 'SSW 810'}, {'E': 'SSW 540'}, {'E': 'SSW 565'}]})
+
+
+    def test_required_elective(self):
+        r1 = Repo("d:/ms se/ssw-810")
+        r1.process_majors()
+        self.assertEqual(r1.calc_required_elective({'SSW 567': 'A', 'SSW 564': 'A-', 'SSW 687': 'B', 'CS 501': 'B'}, "SYEN"), (['SSW 567', 'SSW 564', 'SSW 687', 'CS 501'], {'SYS 612', 'SYS 671', 'SYS 800'}, {'SSW 565', 'SSW 810', 'SSW 540'}))
+
 
 def main():
-
     rep1 = Repo("d:/ms se/ssw-810")
     stu_ans = rep1.process_student_data()
     if stu_ans is not None:
@@ -211,6 +334,9 @@ def main():
     grd_ans = rep1.process_grades()
     if grd_ans is not None:
         print(grd_ans)
+    maj_ans = rep1.process_majors()
+    if maj_ans is not None:
+        print(maj_ans)
 
     rep1.pretty_table()
 
